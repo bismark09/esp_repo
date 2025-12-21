@@ -23,6 +23,7 @@ static const char *TAG = "example";
 */
 #define BLINK_GPIO CONFIG_BLINK_GPIO
 
+static bool blink_enabled = true;
 static uint8_t s_led_state = 0;
 static bool is_blinking = true;
 
@@ -107,17 +108,20 @@ static void set_led_off(void)
 
 static void blink_task(void *pvParameters)
 {
+    const TickType_t delay = pdMS_TO_TICKS(500); // 0.5 секунды
+
     while (1) {
-        if (is_blinking) {
-            ESP_LOGI(TAG, "Turning the LED %s!", s_led_state == true ? "ON" : "OFF");
-            blink_led();
-            /* Toggle the LED state */
+        if (blink_enabled) {
             s_led_state = !s_led_state;
+            blink_led();
+        } else {
+            // если мигание выключено — LED погасить
+            // s_led_state = 0;
+            // blink_led();
         }
-        vTaskDelay(CONFIG_BLINK_PERIOD / portTICK_PERIOD_MS);
+        vTaskDelay(delay);
     }
 }
-
 static void console_task(void *pvParameters)
 {
     uart_config_t uart_config = {
@@ -146,12 +150,28 @@ static void console_task(void *pvParameters)
                 line[pos] = '\0';
                 pos = 0;
 
-                if (strcmp(line, "led on") == 0) {
-                    set_led_on();
+               if (strcmp(line, "led on") == 0) {
+                    blink_enabled = false;
+                    s_led_state = 1;
+                    blink_led();
                     printf("LED turned ON\n");
+
                 } else if (strcmp(line, "led off") == 0) {
-                    set_led_off();
+                    blink_enabled = false;
+                    s_led_state = 0;
+                    blink_led();
                     printf("LED turned OFF\n");
+
+                } else if (strcmp(line, "blink on") == 0) {
+                    blink_enabled = true;
+                    printf("Blinking ENABLED\n");
+
+                } else if (strcmp(line, "blink off") == 0) {
+                    blink_enabled = false;
+                    s_led_state = 0;
+                    blink_led();
+                    printf("Blinking DISABLED\n");
+
                 } else if (strlen(line) > 0) {
                     printf("Unknown command: %s\n", line);
                 }
@@ -168,7 +188,7 @@ void app_main(void)
     configure_led();
 
     // Create blink task
-    //xTaskCreate(blink_task, "blink_task", 2048, NULL, 5, NULL);
+    xTaskCreate(blink_task, "blink_task", 2048, NULL, 5, NULL);
 
     // Create console task
     xTaskCreate(console_task, "console_task", 4096, NULL, 5, NULL);
