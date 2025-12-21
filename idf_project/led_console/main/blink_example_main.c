@@ -141,6 +141,7 @@ static void console_task(void *pvParameters)
     while (1) {
         int len = uart_read_bytes(UART_NUM_0, &ch, 1, pdMS_TO_TICKS(100));
         if (len > 0) {
+            uart_write_bytes(UART_NUM_0, (const char *)&ch, 1); // echo
             if (ch == '\r' || ch == '\n') {
                 line[pos] = '\0';
                 pos = 0;
