@@ -7,9 +7,11 @@
    CONDITIONS OF ANY KIND, either express or implied.
 */
 #include <stdio.h>
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
+#include "driver/uart.h"
 #include "esp_log.h"
 #include "led_strip.h"
 #include "sdkconfig.h"
@@ -22,6 +24,7 @@ static const char *TAG = "example";
 #define BLINK_GPIO CONFIG_BLINK_GPIO
 
 static uint8_t s_led_state = 0;
+static bool is_blinking = true;
 
 #ifdef CONFIG_BLINK_LED_STRIP
 
@@ -88,17 +91,87 @@ static void configure_led(void)
 #error "unsupported LED type"
 #endif
 
+static void set_led_on(void)
+{
+    s_led_state = 1;
+    blink_led();
+    is_blinking = false;
+}
+
+static void set_led_off(void)
+{
+    s_led_state = 0;
+    blink_led();
+    is_blinking = false;
+}
+
+static void blink_task(void *pvParameters)
+{
+    while (1) {
+        if (is_blinking) {
+            ESP_LOGI(TAG, "Turning the LED %s!", s_led_state == true ? "ON" : "OFF");
+            blink_led();
+            /* Toggle the LED state */
+            s_led_state = !s_led_state;
+        }
+        vTaskDelay(CONFIG_BLINK_PERIOD / portTICK_PERIOD_MS);
+    }
+}
+
+static void console_task(void *pvParameters)
+{
+    uart_config_t uart_config = {
+        .baud_rate = 115200,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_DEFAULT,
+    };
+
+    uart_driver_install(UART_NUM_0, 256, 0, 0, NULL, 0);
+    uart_param_config(UART_NUM_0, &uart_config);
+
+    char line[128];
+    int pos = 0;
+    uint8_t ch;
+
+    printf("Console ready. Type 'led on' or 'led off'\n");
+
+    while (1) {
+        int len = uart_read_bytes(UART_NUM_0, &ch, 1, pdMS_TO_TICKS(100));
+        if (len > 0) {
+            if (ch == '\r' || ch == '\n') {
+                line[pos] = '\0';
+                pos = 0;
+
+                if (strcmp(line, "led on") == 0) {
+                    set_led_on();
+                    printf("LED turned ON\n");
+                } else if (strcmp(line, "led off") == 0) {
+                    set_led_off();
+                    printf("LED turned OFF\n");
+                } else if (strlen(line) > 0) {
+                    printf("Unknown command: %s\n", line);
+                }
+            } else if (pos < sizeof(line) - 1) {
+                line[pos++] = ch;
+            }
+        }
+    }
+}
+
 void app_main(void)
 {
-
     /* Configure the peripheral according to the LED type */
     configure_led();
 
-    while (1) {
-        ESP_LOGI(TAG, "Turning the LED %s!", s_led_state == true ? "ON" : "OFF");
-        blink_led();
-        /* Toggle the LED state */
-        s_led_state = !s_led_state;
-        vTaskDelay(CONFIG_BLINK_PERIOD / portTICK_PERIOD_MS);
-    }
+    // Create blink task
+    //xTaskCreate(blink_task, "blink_task", 2048, NULL, 5, NULL);
+
+    // Create console task
+    xTaskCreate(console_task, "console_task", 4096, NULL, 5, NULL);
+
+    // Main task can suspend or delete itself if not needed
+    vTaskSuspend(NULL);
 }
