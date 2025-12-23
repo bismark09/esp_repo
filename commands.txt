@@ -1,1 +1,4 @@
 idf.py flash monitor
+
+dependencies:
+  espressif/logger: ^1.0.33
